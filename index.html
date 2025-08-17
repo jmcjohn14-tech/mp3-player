@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MP3 Player</title>
+
+  <!-- PWA basics -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1a1d2a">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <style>
+    :root{
+      --bg:#0f1115; --panel:#171923; --muted:#8b94a7; --text:#e6e9f2; --accent:#4f7cff;
+      --accent-2:#7aa2ff; --danger:#ff5d5d; --ring:#2a2f3a;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; background:linear-gradient(180deg,#0b0d12, #141726 50%, #0b0e16);
+      color:var(--text); font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial;
+      min-height:100vh; display:grid; place-items:center; padding:24px;
+    }
+    .app{
+      width:min(920px,96vw); background:var(--panel); border:1px solid #222633; border-radius:20px;
+      box-shadow:0 20px 50px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.02);
+      overflow:hidden;
+    }
+    header{
+      display:flex; align-items:center; gap:14px; padding:18px 22px; border-bottom:1px solid #202436;
+      background:linear-gradient(180deg,#1a1d2a,#171a26);
+    }
+    header .logo{
+      width:34px; height:34px; border-radius:10px; background:radial-gradient(circle at 30% 30%, var(--accent), var(--accent-2));
+      box-shadow:0 0 0 4px rgba(79,124,255,.12);
+    }
+    header h1{font-size:18px; margin:0}
+    header .hint{margin-left:auto; color:var(--muted); font-size:12px}
+
+    .wrap{ display:grid; grid-template-columns: 1.1fr .9fr; gap:0; min-height:420px; }
+    @media (max-width:800px){ .wrap{ grid-template-columns:1fr; } }
+
+    .player{ padding:18px 22px; border-right:1px solid #202436; }
+    .drop{
+      border:1.5px dashed #2b3043; border-radius:14px; padding:18px; text-align:center; color:var(--muted);
+      background:rgba(255,255,255,.01);
+    }
+    .drop.dragover{ border-color:var(--accent); color:var(--text); background:rgba(79,124,255,.06); }
+    .controls{ display:flex; align-items:center; gap:10px; margin-top:16px; flex-wrap:wrap; }
+    .btn{
+      display:inline-grid; place-items:center; height:42px; min-width:42px; padding:0 14px;
+      border-radius:12px; border:1px solid #22263a; background:#121524; color:var(--text);
+      cursor:pointer; transition:.18s transform, .18s background, .18s border-color;
+      user-select:none;
+    }
+    .btn:active{ transform:translateY(1px); }
+    .btn.primary{ background:linear-gradient(180deg,#2a5bff,#234be6); border-color:#2b49b8; }
+    .btn.ghost{ background:transparent; }
+    .btn.toggled{ outline:2px solid rgba(79,124,255,.35); }
+
+    .spacer{ flex:1 }
+    .time{ font-feature-settings:"tnum" 1; font-variant-numeric:tabular-nums; color:#b6bfd4; }
+
+    .row{ display:flex; align-items:center; gap:12px; margin-top:12px; }
+    input[type="range"]{
+      -webkit-appearance:none; appearance:none; height:6px; width:100%; background:#1c2031; border-radius:999px;
+      outline:none;
+    }
+    input[type="range"]::-webkit-slider-thumb{
+      -webkit-appearance:none; appearance:none; width:16px; height:16px; border-radius:50%;
+      background:var(--accent); border:2px solid #dfe6ff; box-shadow:0 0 0 4px rgba(79,124,255,.18);
+      cursor:pointer; margin-top:-5px;
+    }
+    input[type="range"]::-moz-range-thumb{
+      width:16px; height:16px; border-radius:50%; background:var(--accent); border:2px solid #dfe6ff; cursor:pointer;
+    }
+    .progress{ flex:1 }
+    .volume{ width:160px; display:flex; align-items:center; gap:8px; }
+
+    .playlist{ padding:18px 22px; display:flex; flex-direction:column; gap:10px; }
+    .list{
+      border:1px solid #22263a; border-radius:14px; overflow:auto; max-height:420px;
+      background:#111422;
+    }
+    .item{
+      display:grid; grid-template-columns: 1fr auto; gap:12px; align-items:center;
+      padding:12px 14px; border-bottom:1px solid #1a1f31; cursor:pointer;
+    }
+    .item:last-child{ border-bottom:none; }
+    .item:hover{ background:#0f1322; }
+    .item.active{ background:rgba(79,124,255,.12); }
+    .empty{ color:var(--muted); text-align:center; padding:24px 10px; }
+
+    .tag{ font-size:12px; color:#9aa4bb; }
+    .bad{ color:var(--danger); }
+
+    .sr{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <div class="logo" aria-hidden="true"></div>
+      <h1>MP3 Player</h1>
+      <div class="hint">You can drag & drop your files</div>
+    </header>
+
+    <div class="wrap">
+      <section class="player">
+        <div id="drop" class="drop" tabindex="0">
+          <p><strong>Drag & Drop</strong> MP3 files here, or click <em>Add Songs</em>.</p>
+          <input id="fileInput" type="file" accept="audio/*" multiple class="sr" />
+          <button class="btn" id="addBtn">Add Songs</button>
+        </div>
+
+        <div class="controls" aria-label="controls">
+          <button class="btn" id="prevBtn" title="Previous [J / ←]">⏮</button>
+          <button class="btn primary" id="playBtn" title="Play/Pause [Space]">▶️</button>
+          <button class="btn" id="nextBtn" title="Next [L / →]">⏭</button>
+
+          <div class="spacer"></div>
+
+          <button class="btn ghost" id="shuffleBtn" title="Shuffle">🔀</button>
+          <button class="btn ghost" id="repeatBtn" title="Repeat: Off">🔁</button>
+        </div>
+
+        <div class="row">
+          <div class="time" id="currentTime">00:00</div>
+          <input class="progress" id="seek" type="range" min="0" max="100" value="0" step="0.1" aria-label="Seek" />
+          <div class="time" id="duration">00:00</div>
+        </div>
+
+        <div class="row">
+          <div class="volume">
+            <span title="Mute/Unmute" id="muteBtn" class="btn" style="height:34px; min-width:34px; padding:0;">🔈</span>
+            <input id="vol" type="range" min="0" max="1" step="0.01" value="1" aria-label="Volume" />
+          </div>
+          <div class="spacer"></div>
+          <div id="nowPlaying" class="tag">—</div>
+        </div>
+
+        <audio id="audio"></audio>
+      </section>
+
+      <aside class="playlist">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <strong>Playlist</strong>
+          <span id="count" class="tag">0 tracks</span>
+          <div class="spacer"></div>
+          <button class="btn ghost" id="clearBtn" title="Clear playlist">🧹 Clear</button>
+        </div>
+        <div id="list" class="list" role="listbox" aria-label="Playlist">
+          <div class="empty">No tracks yet.</div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const $ = (sel, ctx=document) => ctx.querySelector(sel);
+
+  const audio = $("#audio");
+  const fileInput = $("#fileInput");
+  const addBtn = $("#addBtn");
+  const drop = $("#drop");
+  const playBtn = $("#playBtn");
+  const prevBtn = $("#prevBtn");
+  const nextBtn = $("#nextBtn");
+  const shuffleBtn = $("#shuffleBtn");
+  const repeatBtn = $("#repeatBtn");
+  const muteBtn = $("#muteBtn");
+  const seek = $("#seek");
+  const vol = $("#vol");
+  const currentTimeEl = $("#currentTime");
+  const durationEl = $("#duration");
+  const nowPlaying = $("#nowPlaying");
+  const list = $("#list");
+  const count = $("#count");
+  const clearBtn = $("#clearBtn");
+
+  const state = {
+    tracks: [],
+    index: -1,
+    shuffle: false,
+    repeat: 0, // 0: off, 1: all, 2: one
+  };
+
+  const fmt = (sec) => {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    const h = Math.floor(sec/3600);
+    const m = Math.floor((sec%3600)/60);
+    const s = Math.floor(sec%60);
+    const mm = String(m).padStart(2,"0");
+    const ss = String(s).padStart(2,"0");
+    return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  };
+
+  const updateCount = () => count.textContent = `${state.tracks.length} tracks`;
+
+  const renderList = () => {
+    list.innerHTML = "";
+    if (state.tracks.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "empty";
+      empty.textContent = "No tracks yet.";
+      list.appendChild(empty);
+      return;
+    }
+    state.tracks.forEach((t, i) => {
+      const item = document.createElement("div");
+      item.className = "item" + (i === state.index ? " active" : "");
+      item.role = "option";
+      const name = document.createElement("div");
+      name.textContent = t.name;
+      const meta = document.createElement("div");
+      meta.className = "tag";
+      meta.textContent = t.file?.type?.replace("audio/","").toUpperCase() || "AUDIO";
+      item.appendChild(name);
+      item.appendChild(meta);
+      item.addEventListener("click", () => loadAndPlay(i));
+      list.appendChild(item);
+    });
+    list.scrollTo({ top: (state.index-1)*56, behavior:"smooth" });
+  };
+
+  const setNowPlaying = () => {
+    if (state.index < 0) { nowPlaying.textContent = "—"; return; }
+    nowPlaying.textContent = "Now Playing: " + (state.tracks[state.index]?.name ?? "—");
+  };
+
+  const setPlayIcon = (playing) => playBtn.textContent = playing ? "⏸" : "▶️";
+
+  const loadAndPlay = (idx) => {
+    if (idx < 0 || idx >= state.tracks.length) return;
+    state.index = idx;
+    const tr = state.tracks[idx];
+    audio.src = tr.url;
+    audio.play().catch(() => {});
+    renderList(); setNowPlaying(); setPlayIcon(true);
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: tr.name, artist: "", album: "" });
+    }
+  };
+
+  const playPause = () => {
+    if (!audio.src) {
+      if (state.tracks.length) loadAndPlay(0);
+      return;
+    }
+    if (audio.paused) audio.play(); else audio.pause();
+  };
+
+  const next = () => {
+    if (!state.tracks.length) return;
+    if (state.repeat === 2) { audio.currentTime = 0; audio.play(); return; }
+    if (state.shuffle) {
+      let n = state.index;
+      if (state.tracks.length > 1) {
+        while (n === state.index) n = Math.floor(Math.random()*state.tracks.length);
+      }
+      loadAndPlay(n); return;
+    }
+    const n = state.index + 1;
+    if (n < state.tracks.length) loadAndPlay(n);
+    else if (state.repeat === 1) loadAndPlay(0);
+  };
+
+  const prev = () => {
+    if (!state.tracks.length) return;
+    if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+    const p = state.index - 1;
+    if (p >= 0) loadAndPlay(p);
+    else if (state.repeat === 1) loadAndPlay(state.tracks.length - 1);
+  };
+
+  const addFiles = (files) => {
+    const arr = Array.from(files).filter(f => f.type.startsWith("audio/") || f.name.match(/\.(mp3|wav|ogg|m4a|aac)$/i));
+    const bad = files.length - arr.length;
+    const newTracks = arr.map(f => ({ name: f.name.replace(/\.[^/.]+$/,""), url: URL.createObjectURL(f), file:f }));
+    state.tracks.push(...newTracks);
+    updateCount(); renderList();
+    if (bad>0) {
+      const warn = document.createElement("div");
+      warn.className = "tag bad";
+      warn.textContent = `${bad} incompatible file(s) ignored.`;
+      drop.appendChild(warn);
+      setTimeout(()=> warn.remove(), 3000);
+    }
+    if (state.index === -1 && state.tracks.length) loadAndPlay(0);
+  };
+
+  addBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", (e) => addFiles(e.target.files));
+
+  ["dragenter","dragover"].forEach(ev =>
+    drop.addEventListener(ev, (e)=>{ e.preventDefault(); drop.classList.add("dragover"); })
+  );
+  ["dragleave","dragend"].forEach(ev =>
+    drop.addEventListener(ev, ()=> drop.classList.remove("dragover"))
+  );
+  drop.addEventListener("drop", (e)=>{
+    e.preventDefault(); drop.classList.remove("dragover");
+    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+  });
+
+  playBtn.addEventListener("click", playPause);
+  nextBtn.addEventListener("click", next);
+  prevBtn.addEventListener("click", prev);
+
+  shuffleBtn.addEventListener("click", ()=>{
+    state.shuffle = !state.shuffle;
+    shuffleBtn.classList.toggle("toggled", state.shuffle);
+    shuffleBtn.title = state.shuffle ? "Shuffle: On" : "Shuffle: Off";
+  });
+
+  repeatBtn.addEventListener("click", ()=>{
+    state.repeat = (state.repeat + 1) % 3;
+    const modes = ["Off","All","One"];
+    repeatBtn.title = "Repeat: " + modes[state.repeat];
+    repeatBtn.textContent = state.repeat === 2 ? "🔂" : "🔁";
+    repeatBtn.classList.toggle("toggled", state.repeat !== 0);
+  });
+
+  muteBtn.addEventListener("click", ()=>{
+    audio.muted = !audio.muted;
+    muteBtn.textContent = audio.muted ? "🔇" : "🔈";
+  });
+
+  vol.addEventListener("input", ()=> {
+    audio.volume = parseFloat(vol.value);
+    if (audio.volume === 0) audio.muted = true, (muteBtn.textContent="🔇");
+    else audio.muted = false, (muteBtn.textContent="🔈");
+  });
+
+  audio.addEventListener("timeupdate", ()=>{
+    const p = (audio.currentTime / (audio.duration || 1)) * 100;
+    seek.value = isFinite(p) ? p : 0;
+    currentTimeEl.textContent = fmt(audio.currentTime);
+  });
+  audio.addEventListener("loadedmetadata", ()=>{
+    durationEl.textContent = fmt(audio.duration);
+  });
+  seek.addEventListener("input", ()=>{
+    if (!isFinite(audio.duration)) return;
+    const t = (parseFloat(seek.value)/100) * audio.duration;
+    audio.currentTime = t;
+  });
+
+  audio.addEventListener("play", ()=> setPlayIcon(true));
+  audio.addEventListener("pause", ()=> setPlayIcon(false));
+  audio.addEventListener("ended", next);
+
+  // Keyboard shortcuts (when focus is not in an input)
+  window.addEventListener("keydown", (e)=>{
+    if (["INPUT","TEXTAREA"].includes(document.activeElement.tagName)) return;
+    if (e.code === "Space") { e.preventDefault(); playPause(); }
+    else if (e.key === "ArrowRight" || e.key.toLowerCase()==="l") { audio.currentTime += 5; }
+    else if (e.key === "ArrowLeft" || e.key.toLowerCase()==="j") { audio.currentTime -= 5; }
+    else if (e.key.toLowerCase()==="k") { playPause(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); vol.value = Math.min(1, parseFloat(vol.value) + 0.05); vol.dispatchEvent(new Event("input")); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); vol.value = Math.max(0, parseFloat(vol.value) - 0.05); vol.dispatchEvent(new Event("input")); }
+    else if (e.key.toLowerCase()==="n") { next(); }
+    else if (e.key.toLowerCase()==="p") { prev(); }
+  });
+
+  // PWA: register service worker if available
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(console.error);
+    });
+  }
+})();
+</script>
+</body>
+</html>
